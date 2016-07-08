@@ -32,3 +32,8 @@ oracle_database_host:         'dbasm.example.com:1521'
 oracle_database_sys_password:    'Welcome01'
 oracle_database_system_password: 'Welcome01'
 
+disk_discovery_string:    'ORCL:*'
+disks:                    'ORCL:DISK_1,ORCL:DISK_2'
+
+reco_disk_1: 'ORCL:DISK_3'
+reco_disk_2: 'ORCL:DISK_4'

@@ -1,8 +1,22 @@
-node 'dbasm.example.com' {
+node 'dbasmnfs.example.com' {
   include asm_os
-  include nfs_defintion
+  include nfs_definition
   include install_asm
 }
+
+node 'dbasmraw.example.com' {
+  require asm_os
+  require asm_drivers
+  require asm_disks
+  include install_asm
+
+
+  Class['asm_os']
+  -> Class['asm_drivers']
+  -> Class['asm_disks']
+  -> Class['install_asm']
+}
+
 
 Package{allow_virtual => false,}
 
@@ -109,7 +123,7 @@ class asm_os {
 
 }
 
-class nfs_defintion {
+class nfs_definition {
   require asm_os
 
   file { '/home/nfs_server_data':
@@ -201,22 +215,40 @@ class nfs_defintion {
   }
 }
 
-class install_asm {
-  require asm_os,nfs_defintion
+class asm_disks
+{
+  ora_rac::asm_disk{'DISK_1':
+    raw_device =>  '/dev/sdb:1',
+  }
+  ora_rac::asm_disk{'DISK_2':
+    raw_device =>  '/dev/sdc:1',
+  }
+  ora_rac::asm_disk{'DISK_3':
+    raw_device =>  '/dev/sdd:1',
+  }
+  ora_rac::asm_disk{'DISK_4':
+    raw_device =>  '/dev/sde:1',
+  }
+}
+
+class install_asm
+{
+  $reco_disk_1 =  hiera('reco_disk_1')
+  $reco_disk_2 =  hiera('reco_disk_2')
 
     ora_install::installasm{ 'db_linux-x64':
-      version                => lookup('db_version'),
-      file                   => lookup('asm_file'),
-      grid_type              => 'HA_CONFIG',
-      grid_base              => lookup('grid_base_dir'),
-      grid_home              => lookup('grid_home_dir'),
-      ora_inventory_dir      => lookup('oraInventory_dir'),
-      user                   => lookup('grid_os_user'),
-      asm_diskgroup          => 'DATA',
-      disk_discovery_string  => '/nfs_client/asm*',
-      disks                  => '/nfs_client/asm_sda_nfs_b1,/nfs_client/asm_sda_nfs_b2',
-      disk_redundancy        => 'EXTERNAL',
-      remote_file            => false,
+      version                   => lookup('db_version'),
+      file                      => lookup('asm_file'),
+      grid_type                 => 'HA_CONFIG',
+      grid_base                 => lookup('grid_base_dir'),
+      grid_home                 => lookup('grid_home_dir'),
+      ora_inventory_dir         => lookup('oraInventory_dir'),
+      user                      => lookup('grid_os_user'),
+      asm_diskgroup             => 'DATA',
+      disk_discovery_string     => lookup('disk_discovery_string'),
+      disks                     => lookup('disks'),
+      disk_redundancy           => 'EXTERNAL',
+      remote_file               => false,
       puppet_download_mnt_point => lookup('oracle_source'),
     } ->
 
@@ -243,7 +275,7 @@ class install_asm {
       compat_asm      => '11.2.0.0.0',
       compat_rdbms    => '10.1.0.0.0',
       diskgroup_state => 'MOUNTED',
-      disks           => {'RECO_0000' => [{'diskname' => 'RECO_0000', 'path' => '/nfs_client/asm_sda_nfs_b3'}], 'RECO_0001' => [{'diskname' => 'RECO_0001', 'path' => '/nfs_client/asm_sda_nfs_b4'}]},
+      disks           => {'RECO_0000' => [{'diskname' => 'RECO_0000', 'path' => $reco_disk_1}], 'RECO_0001' => [{'diskname' => 'RECO_0001', 'path' => $reco_disk_2}]},
       redundancy_type => 'EXTERNAL',
     } ->
 
@@ -288,6 +320,51 @@ class install_asm {
       user                    => lookup('oracle_os_user'),
       db_name                 => lookup('oracle_database_name'),
     }
+}
+
+class asm_drivers
+{
+
+  yumrepo{ oracle:
+    baseurl  => 'http://public-yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64',
+    descr    => 'Oracle repo',
+    gpgcheck => 0,
+    enabled  => 1,
+  }
+
+  $packages = ['kmod-oracleasm', 'oracleasm-support']
+
+  package{$packages:
+    ensure => installed,
+  } ->
+  package { oracleasmlib:
+    ensure => installed,
+    source => '/software/oracleasmlib-2.0.12-1.el7.x86_64.rpm',
+    provider => rpm,
+  }
+
+  $grid_user = 'grid'
+  $grid_group = 'asmdba'
+
+  file{'/etc/sysconfig/oracleasm-_dev_oracleasm':
+    ensure  => file,
+    owner   => root,
+    group   => root,
+    mode    => '0775',
+    content => template('ora_rac/oracleasm.erb'),
+  }
+
+  file{'/etc/sysconfig/oracleasm':
+    ensure  => link,
+    target  => '/etc/sysconfig/oracleasm-_dev_oracleasm',
+    require => File['/etc/sysconfig/oracleasm-_dev_oracleasm'],
+  }
+
+  service{'oracleasm':
+    ensure    => 'running',
+    subscribe => File['/etc/sysconfig/oracleasm'],
+    require   => Package['oracleasm-support'],
+  }
 
 }
 
